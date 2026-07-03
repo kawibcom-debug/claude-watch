@@ -207,6 +207,14 @@ def extract_scene_change(
     On `uniform_fallback_min`: static or near-static videos (screen recordings,
     long talking heads) yield very few scene changes. Fall back to uniform
     sampling — sparse frames > almost no frames.
+
+    `uniform_fallback_min` is treated as a ceiling, not a fixed floor: short
+    clips need far fewer detected shots to be considered "real" scene-change
+    data. A 20s ad with 8 fast cuts is not static — but 8 < 10 would trip a
+    fixed threshold and silently discard real cut data. The effective floor
+    scales down with the analysed duration (`duration / 3`, clamped to
+    [3, uniform_fallback_min]) so short, fast-cut videos keep their
+    scene-change frames instead of falling back to uniform sampling.
     """
     if shutil.which("ffmpeg") is None:
         raise SystemExit("ffmpeg is not installed. Install with: brew install ffmpeg")
@@ -260,15 +268,21 @@ def extract_scene_change(
 
     frames = sorted(out_dir.glob("frame_*.jpg"))
 
+    meta = get_metadata(video_path)
+    full_duration = meta["duration_seconds"]
+    eff_start = start_seconds if start_seconds is not None else 0.0
+    eff_end = end_seconds if end_seconds is not None else full_duration
+    eff_duration = max(0.1, eff_end - eff_start)
+
+    # Scale the fallback floor down for short clips: a fixed absolute minimum
+    # (e.g. 10) is nearly unreachable for a 20s fast-cut video even when the
+    # cuts are real, which used to discard genuine scene-change data.
+    effective_fallback_min = max(3, min(uniform_fallback_min, int(eff_duration // 3)))
+
     # Fallback: too few scene frames means this video is static-ish.
-    if len(frames) < uniform_fallback_min:
+    if len(frames) < effective_fallback_min:
         for f in frames:
             f.unlink()
-        meta = get_metadata(video_path)
-        full_duration = meta["duration_seconds"]
-        eff_start = start_seconds if start_seconds is not None else 0.0
-        eff_end = end_seconds if end_seconds is not None else full_duration
-        eff_duration = max(0.1, eff_end - eff_start)
         fps, _ = auto_fps(eff_duration, max_frames=max_frames)
         return extract(
             video_path, out_dir,

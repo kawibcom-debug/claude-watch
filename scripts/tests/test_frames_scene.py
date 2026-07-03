@@ -52,6 +52,47 @@ class TestSceneChange(unittest.TestCase):
             self.assertTrue(Path(f["path"]).exists())
             self.assertIn("timestamp_seconds", f)
 
+    def test_short_fast_cut_video_keeps_scene_change(self):
+        """Regression test: a short clip with real cuts must not fall back to
+        uniform sampling just because it has fewer than the (formerly fixed)
+        absolute floor of 10 detected scene changes.
+
+        Mirrors the 7-Eleven Thailand ad case: a short, fast-cut video used to
+        trip `len(frames) < uniform_fallback_min=10` and silently discard real
+        scene-change data in favor of a uniform sample, even though the cuts
+        were genuine. On this 8s / 4-color clip, ffmpeg's scene filter detects
+        3 real transitions; the duration-scaled floor
+        (`max(3, min(10, 8 // 3)) == 3`) must accept that as real data instead
+        of forcing a uniform fallback.
+        """
+        fast_cuts = self.tmp / "fast_cuts.mp4"
+        colors = ["red", "green", "blue", "yellow"]
+        inputs: list[str] = []
+        for c in colors:
+            inputs += ["-f", "lavfi", "-i", f"color=c={c}:size=320x240:duration=2"]
+        filter_inputs = "".join(f"[{i}:v]" for i in range(len(colors)))
+        cmd = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            *inputs,
+            "-filter_complex", f"{filter_inputs}concat=n={len(colors)}:v=1:a=0[v]",
+            "-map", "[v]",
+            "-pix_fmt", "yuv420p",
+            str(fast_cuts),
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+
+        out_dir = self.tmp / "fast_cuts_frames"
+        frames = extract_scene_change(
+            str(fast_cuts), out_dir,
+            scene_threshold=0.3, resolution=128, max_frames=100,
+        )
+        sources = {f.get("source") for f in frames}
+        self.assertEqual(
+            sources, {"scene-change"},
+            "short fast-cut video must not silently fall back to uniform sampling",
+        )
+        self.assertGreaterEqual(len(frames), 3, "expected the real cuts to survive")
+
     def test_falls_back_to_uniform_when_no_scenes(self):
         static = self.tmp / "static.mp4"
         subprocess.run([
