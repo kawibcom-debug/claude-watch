@@ -177,7 +177,11 @@ def main() -> int:
             "a /watch invocation already produced."
         )
 
-    out_path = Path(args.out).expanduser().resolve() if args.out else workdir / "storyboard.html"
+    if args.out:
+        out_arg = Path(args.out).expanduser()
+        out_path = out_arg if out_arg.is_absolute() else (workdir / out_arg).resolve()
+    else:
+        out_path = workdir / "storyboard.html"
     result = write_storyboard(
         out_path, workdir, report_path,
         include_frames=not args.no_frames,

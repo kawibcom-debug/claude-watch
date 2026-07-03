@@ -2,6 +2,11 @@
 
 All notable changes to `/watch` are documented here.
 
+## [0.3.1] — 2026-07-03
+
+### Fixed
+- `reverse_prompt.py` and `storyboard.py` resolved a relative `--out` path against the shell's current working directory instead of the `<workdir>` argument, so `--out prompts.md` (or `--out storyboard.html`) landed the file wherever the caller's shell happened to be — including polluting an unrelated git repo in one observed case. Both scripts now join a relative `--out` onto `workdir` before writing; an absolute `--out` still overrides as-is. Added a regression test (`test_cli_out_path.py`) covering both scripts and the absolute-path override case.
+
 ## [0.3.0] — 2026-07-03
 
 ### Added

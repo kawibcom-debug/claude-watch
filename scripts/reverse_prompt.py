@@ -269,7 +269,11 @@ def main() -> int:
             "a /watch invocation already produced."
         )
 
-    out_path = Path(args.out).expanduser().resolve() if args.out else workdir / "prompts.md"
+    if args.out:
+        out_arg = Path(args.out).expanduser()
+        out_path = out_arg if out_arg.is_absolute() else (workdir / out_arg).resolve()
+    else:
+        out_path = workdir / "prompts.md"
     result = write_prompts(out_path, workdir, report_path)
     print(str(result))
     return 0
