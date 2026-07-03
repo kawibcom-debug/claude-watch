@@ -196,6 +196,27 @@ def _install_hint_windows(missing: list[str]) -> str:
     return "\n  ".join(hints) if hints else "nothing to install"
 
 
+def _ensure_certifi() -> None:
+    """Best-effort: install certifi so Whisper's TLS handshake doesn't depend
+    on the system Python having a working default CA bundle (common failure:
+    'CERTIFICATE_VERIFY_FAILED' on stock macOS Python installs). Never fatal —
+    whisper.py falls back to ssl.create_default_context() if certifi is absent.
+    """
+    try:
+        import certifi  # noqa: F401
+        return
+    except ImportError:
+        pass
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--user", "-q", "certifi"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        print("[setup] installed certifi (fixes Whisper SSL cert lookup on some systems)", file=sys.stderr)
+    else:
+        print("[setup] could not auto-install certifi — Whisper falls back to system CA store", file=sys.stderr)
+
+
 def _status() -> dict:
     """Structured preflight snapshot."""
     missing = _check_binaries()
@@ -286,6 +307,8 @@ def cmd_install() -> int:
             print(f"[setup] unsupported platform ({system}) for auto-install. Install manually:", file=sys.stderr)
             print(f"  missing: {', '.join(missing)}", file=sys.stderr)
             return 2
+
+    _ensure_certifi()
 
     created = _scaffold_env()
     if created:

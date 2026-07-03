@@ -172,7 +172,11 @@ def _post_whisper(
         "User-Agent": "watch-skill/1.0 (+claude-code; python-urllib)",
     }
 
-    context = ssl.create_default_context()
+    try:
+        import certifi
+        context = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        context = ssl.create_default_context()
     rate_limit_hits = 0
     last_exc: Exception | None = None
     last_detail = ""
