@@ -271,6 +271,42 @@ If you already watched a video this session and the user asks a follow-up, do **
 - Does not write to the Second Brain without explicit user consent at the Step 4.5 prompt
 - Does not silently overwrite wiki claims — contradictions surface as WARN flags per the Ingest op contract
 
-**Bundled scripts:** `scripts/watch.py` (entry point), `scripts/download.py` (yt-dlp wrapper), `scripts/frames.py` (ffmpeg uniform + scene-change extraction + hero selection), `scripts/pacing.py` (editorial metrics), `scripts/hook.py` (0-10s microscope), `scripts/report.py` (structured report emitter), `scripts/transcribe.py` (caption selection + Whisper orchestration), `scripts/whisper.py` (Groq / OpenAI clients, supports word-level timestamps), `scripts/setup.py` (preflight + installer)
+**Bundled scripts:** `scripts/watch.py` (entry point), `scripts/download.py` (yt-dlp wrapper), `scripts/frames.py` (ffmpeg uniform + scene-change extraction + hero selection), `scripts/pacing.py` (editorial metrics), `scripts/hook.py` (0-10s microscope), `scripts/report.py` (structured report emitter), `scripts/transcribe.py` (caption selection + Whisper orchestration), `scripts/whisper.py` (Groq / OpenAI clients, supports word-level timestamps), `scripts/setup.py` (preflight + installer), `scripts/reverse_prompt.py` (extended mode: video-gen prompt sheet from an existing workdir), `scripts/storyboard.py` (extended mode: printable storyboard.html from an existing workdir)
 
 Review scripts before first use to verify behavior.
+
+## Extended modes (fork Kawibcom)
+
+Two additional modes reuse an existing `/watch` workdir — no re-download, no re-extraction. Run them any time after a `/watch` invocation, against the same `<workdir>` the script printed at the end of that run.
+
+### Reverse-prompt mode
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/reverse_prompt.py" <workdir> [--out prompts.md]
+```
+
+Reads `<workdir>/report.md` (frame timestamps, transcript, frontmatter) and derives one plan (shot) per detected frame — the frame's timestamp is the plan's start, the next frame's timestamp is its end, the last plan's end clamps to the video's total duration. Emits `<workdir>/prompts.md`:
+
+- **STYLE GLOBAL** — aspect ratio (probed via `ffprobe` on `<workdir>/download/video.*` when present), shot count, duration, plus a `<!-- pending Claude fill -->` marker for palette/lighting/energy.
+- **One block per plan** — `### PLAN N — start–end (duration)`, the source frame path, a pending marker for the English video-generator-optimized description (subject, action, framing, camera movement, lighting), and a transition line to the next plan.
+- **Script voix off (horodaté)** — the full transcript, reused verbatim from `report.md`.
+- **Textes incrustés** — a pending marker; only Claude reading the frames knows what on-screen text exists.
+
+Same fill mechanism as `report.md`: the script only structures the file. After running it, `Read` the same frames you already have (or re-read them if this is a fresh session) and fill every `<!-- pending Claude fill -->` marker via `Edit`, exactly like Step 4 of the main flow.
+
+### Storyboard mode
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/storyboard.py" <workdir> [--out storyboard.html] [--no-frames] [--title "..."] [--source-label "..."]
+```
+
+Generates a self-contained, printable `storyboard.html` — one card per plan (same plan derivation as reverse-prompt) with the source frame embedded as a base64 data URI, plan number, duration, and empty `contenteditable` fields for Claude (or the user) to fill: Action, Dialogue/VO, Mouvement caméra, Note d'intention. Print straight from a browser to PDF.
+
+- `--no-frames` — "production storyboard" variant: leaves the image slot as an empty dashed box instead of embedding the reference frame, for handing to a client who will shoot their own version rather than reproduce the reference footage.
+- `--title` / `--source-label` — override the header (defaults to the title/source in `report.md`'s frontmatter).
+
+### Notes
+
+- Both scripts fail fast with a clear error if `<workdir>/report.md` doesn't exist — they don't invoke `watch.py` themselves.
+- Neither script talks to the network, Whisper, or ffmpeg for extraction — `reverse_prompt.py` only shells out to `ffprobe` (read-only, best-effort) to detect aspect ratio.
+- Plan boundaries are only as good as the frame set already on disk: if a workdir predates the scene-change fallback fix (`frames.py`, fixed in v0.2.1 — see CHANGELOG), a uniform-sampled workdir will produce arbitrary, evenly-spaced "plans" rather than real shot boundaries. Re-run `/watch` on the source if you need a true per-shot breakdown.
